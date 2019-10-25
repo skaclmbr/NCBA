@@ -158,13 +158,15 @@ def download_GAP_range_CONUS2001v1(gap_id, toDir):
     # Return path to range file without extension
     return rng_zip.replace('.zip', '')
 
-def make_summary_db(summ_db, gap_id, inDir, outDir, NChucs, NCBAblocks,
-                        NCcounties):
+def make_summary_db(summary_db, occ_db, gap_id, inDir, outDir, NChucs,
+                    NCBAblocks, NCcounties):
     """
     Builds an sqlite database in which to store NC bird occurrence information.
 
     Arguments:
-    summ_db -- name of database to create for evaluation.
+    summary_db -- name of database to create for evaluation.
+    occ_db -- path to database with occurrence records to use (one
+                generated from occurrence-record-wrangler code)
     gap_id -- gap species code. For example, 'bAMROx'
     NChucs -- path to GAP's 12 digit hucs shapefile for NC.
     NCBAblocks -- path to NCBA blocks shapefile.
@@ -177,11 +179,11 @@ def make_summary_db(summ_db, gap_id, inDir, outDir, NChucs, NCBAblocks,
     import os
 
     # Delete db if it exists
-    if os.path.exists(summ_db):
-        os.remove(summ_db)
+    if os.path.exists(summary_db):
+        os.remove(summary_db)
 
     # Create the database
-    cursorQ, conn = spatialite(summ_db)
+    cursorQ, conn = spatialite(summary_db)
 
     cursorQ.executescript("""SELECT InitSpatialMetadata(1);
                        INSERT into spatial_ref_sys
@@ -216,7 +218,7 @@ def make_summary_db(summ_db, gap_id, inDir, outDir, NChucs, NCBAblocks,
     conn.commit() # Commit and close here, reopen connection or else code throws errors.
     conn.close()
 
-    cursorQ, conn = spatialite(summ_db)
+    cursorQ, conn = spatialite(summary_db)
 
     sql1 = """
     ALTER TABLE sp_range RENAME TO garb;
@@ -245,6 +247,37 @@ def make_summary_db(summ_db, gap_id, inDir, outDir, NChucs, NCBAblocks,
     """.format(outDir, gap_id)
 
     cursorQ.executescript(sql2)
+
+    #################################  Read in occurrence records
+    #############################################################
+    # Attach occurrence database
+    cursor.execute("ATTACH DATABASE ? AS occs;", (occ_db,))
+
+    # Create table of occurrences that fit within evaluation parameters
+    years =
+    years = tuple([x.strip() for x in years.split(',')])
+    months =
+    months = tuple([x.strip().zfill(2) for x in months.split(',')])
+    cursor.execute("""CREATE TABLE evaluation_occurrences AS
+                       SELECT * FROM occs.occurrences
+                       WHERE STRFTIME('%Y', OccurrenceDate) IN {0}
+                           AND STRFTIME('%m', OccurrenceDate) IN {1};""".format(years, months))
+
+    '''                                                              IS THIS CODE NECESSARY?  MOVE TO NOTEBOOK?
+    # Export occurrence circles as a shapefile (all seasons)
+    cursor.execute("""SELECT RecoverGeometryColumn('evaluation_occurrences', 'circle_wgs84',
+                      4326, 'POLYGON', 'XY');""")
+
+    sql = """SELECT ExportSHP('evaluation_occurrences', 'circle_wgs84', ?, 'utf-8');"""
+    subs = outDir + summary_name + "_circles"
+    cursor.execute(sql, (subs,))
+
+    # Export occurrence 'points' as a shapefile (all seasons)
+    cursor.execute("""SELECT RecoverGeometryColumn('evaluation_occurrences', 'geom_xy4326',
+                      4326, 'POINT', 'XY');""")
+    subs = outDir + summary_name + "_points"
+    cursor.execute("""SELECT ExportSHP('evaluation_occurrences', 'geom_xy4326', ?, 'utf-8');""", (subs,))
+    '''
     conn.commit()
     conn.close()
     del cursorQ
@@ -269,8 +302,8 @@ def get_GBIF_species_key(scientific_name):
     return key
 
 
-def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
-    """
+def summarize_by_features(features='NChucs', summary_id, gap_id, summary_db, outDir, codeDir):
+    """ REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE
     Uses occurrence data collected with the occurrence records wrangler repo
     to summarize occurrence records by GAP hucs, NCBA blocks, and NC counties.
     A table is created for the GAP range and columns reporting the results of
@@ -289,9 +322,9 @@ def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
 
     Arguments:
     features -- "NChucs", "NCcounties", or "NCblocks"
-    eval_id -- name/code of the evaluation
+    summary_id -- name/code of the evaluation
     gap_id -- gap species code.
-    summ_db -- path to the evaluation database.  It should have been created with
+    summary_db -- path to the evaluation database.  It should have been created with
                 make_evaluation_db() so the schema is correct.
     outDir -- directory of
     codeDir -- directory of code repo
@@ -299,13 +332,13 @@ def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
     import sqlite3
     import os
 
-    cursor, conn = spatialite(codeDir + "/evaluations.sqlite")
-    method = cursor.execute("SELECT method FROM evaluations WHERE evaluation_id = ?;", (eval_id,)).fetchone()[0]
-    conn.close()
-    del cursor
+    #cursor, conn = spatialite(codeDir + "/evaluations.sqlite")
+    #method = cursor.execute("SELECT method FROM evaluations WHERE evaluation_id = ?;", (summary_id,)).fetchone()[0]
+    #conn.close()
+    #del cursor
 
-    # Range evaluation database.
-    cursor, conn = spatialite(summ_db)
+    # Connect to range evaluation database.
+    cursor, conn = spatialite(summary_db)
 
     cursor.executescript("""ATTACH DATABASE '{0}/evaluations.sqlite' AS params;""".format(codeDir))
 
@@ -316,19 +349,16 @@ def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
 
     /*#########################  How many occurrences per feature?
      #############################################################*/
-    /*  Intersect occurrence circles with hucs  */
+    /*  Intersect occurrence circles with features  */
     CREATE TABLE green AS
-                  SELECT NCshucs.HUC12RNG, ox.occ_id,
-                  CastToMultiPolygon(Intersection(NCshucs.geom_4326,
+                  SELECT NChucs.HUC12RNG, ox.occ_id,
+                  CastToMultiPolygon(Intersection(NChucs.geom_4326,
                                                   ox.circle_wgs84)) AS geom_4326
-                  FROM NCshucs, evaluation_occurrences AS ox
+                  FROM NChucs, evaluation_occurrences AS ox
                   WHERE Intersects(NCshucs.geom_4326, ox.circle_wgs84);
 
     SELECT RecoverGeometryColumn('green', 'geom_4326', 4326, 'MULTIPOLYGON',
                                  'XY');
-
-    /* In light of the error tolerance for the species, which occurrences can
-       be attributed to a huc?  */
 
     /* First, equal area geometries have to be created. */
     ALTER TABLE green ADD COLUMN geom_102008 BLOB;
@@ -411,7 +441,7 @@ def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
     /*  */
     DROP TABLE green;
     DROP TABLE orange;
-    """.format(eval_id, gap_id, outDir)
+    """.format(summary_id, gap_id, outDir, features)
 
     try:
         cursor.executescript(sql2)
