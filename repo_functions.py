@@ -6,7 +6,7 @@ def spatialite(db):
     spatialite extension and shapefile functions.
 
     (db) --> connection, cursor
-    
+
     Arguments:
     db -- path to the db you want to create or connect to.
     """
@@ -19,7 +19,6 @@ def spatialite(db):
     cursor.execute('SELECT load_extension("mod_spatialite");')
 
     return cursor, connection
-
 
 # Define a function for displaying the maps that will be created.
 def MapShapefilePolygons(map_these, title):
@@ -61,8 +60,8 @@ def MapShapefilePolygons(map_these, title):
     # Basemap
     fig = plt.figure(figsize=(15,12))
     ax = plt.subplot(1,1,1)
-    map = Basemap(projection='aea', resolution='l', lon_0=-95.5, lat_0=39.0,
-                  height=3200000, width=5000000)
+    map = Basemap(projection='aea', resolution='i', lon_0=-79.8, lat_0=35.5,
+                  height=410000, width=900000)
     map.drawcoastlines(color='grey')
     map.drawstates(color='grey')
     map.drawcountries(color='grey')
@@ -159,15 +158,17 @@ def download_GAP_range_CONUS2001v1(gap_id, toDir):
     # Return path to range file without extension
     return rng_zip.replace('.zip', '')
 
-def make_evaluation_db(eval_db, gap_id, inDir, outDir, shucLoc):
+def make_summary_db(summ_db, gap_id, inDir, outDir, NChucs, NCBAblocks,
+                        NCcounties):
     """
-    Builds an sqlite database in which to store range evaluation information.
-    shucloc needs to be eventually be replaced with ScienceBase download of shucs.
+    Builds an sqlite database in which to store NC bird occurrence information.
 
     Arguments:
-    eval_db -- name of database to create for evaluation.
+    summ_db -- name of database to create for evaluation.
     gap_id -- gap species code. For example, 'bAMROx'
-    shucLoc -- path to GAP's 12 digit hucs shapefile
+    NChucs -- path to GAP's 12 digit hucs shapefile for NC.
+    NCBAblocks -- path to NCBA blocks shapefile.
+    NCcounties -- path to shapefile of NC counties.
     inDir -- project's input directory
     outDir -- output directory for this repo
     """
@@ -176,36 +177,37 @@ def make_evaluation_db(eval_db, gap_id, inDir, outDir, shucLoc):
     import os
 
     # Delete db if it exists
-    if os.path.exists(eval_db):
-        os.remove(eval_db)
+    if os.path.exists(summ_db):
+        os.remove(summ_db)
 
     # Create the database
-    cursorQ, conn = spatialite(eval_db)
+    cursorQ, conn = spatialite(summ_db)
 
-    cursorQ.execute('SELECT InitSpatialMetadata(1);')
+    cursorQ.executescript("""SELECT InitSpatialMetadata(1);
+                       INSERT into spatial_ref_sys
+                         (srid, auth_name, auth_srid, proj4text, srtext)
+                         values (102008, 'ESRI', 102008, '+proj=aea +lat_1=20 +lat_2=60
+                         +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m
+                         +no_defs ', 'PROJCS["North_America_Albers_Equal_Area_Conic",
+                         GEOGCS["GCS_North_American_1983",
+                         DATUM["North_American_Datum_1983",
+                         SPHEROID["GRS_1980",6378137,298.257222101]],
+                         PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],
+                         PROJECTION["Albers_Conic_Equal_Area"],
+                         PARAMETER["False_Easting",0],
+                         PARAMETER["False_Northing",0],
+                         PARAMETER["longitude_of_center",-96],
+                         PARAMETER["Standard_Parallel_1",20],
+                         PARAMETER["Standard_Parallel_2",60],
+                         PARAMETER["latitude_of_center",40],
+                         UNIT["Meter",1],AUTHORITY["EPSG","102008"]]');""")
 
-    # Add Albers Conic Equal Area 102008 to the spatial sys ref tables
-    cursorQ.execute("""/* Add Albers_Conic_Equal_Area 102008 to the spatial sys ref tables */
-                 INSERT into spatial_ref_sys
-                 (srid, auth_name, auth_srid, proj4text, srtext)
-                 values (102008, 'ESRI', 102008, '+proj=aea +lat_1=20 +lat_2=60
-                 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m
-                 +no_defs ', 'PROJCS["North_America_Albers_Equal_Area_Conic",
-                 GEOGCS["GCS_North_American_1983",
-                 DATUM["North_American_Datum_1983",
-                 SPHEROID["GRS_1980",6378137,298.257222101]],
-                 PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],
-                 PROJECTION["Albers_Conic_Equal_Area"],
-                 PARAMETER["False_Easting",0],
-                 PARAMETER["False_Northing",0],
-                 PARAMETER["longitude_of_center",-96],
-                 PARAMETER["Standard_Parallel_1",20],
-                 PARAMETER["Standard_Parallel_2",60],
-                 PARAMETER["latitude_of_center",40],
-                 UNIT["Meter",1],AUTHORITY["EPSG","102008"]]');""")
-
-    # Add the hucs shapefile to the db.
-    cursorQ.execute("""SELECT ImportSHP(?, 'shucs', 'utf-8', 102008, 'geom_102008', 'HUC12RNG', 'POLYGON');""", (shucLoc,))
+    # Add the NChucs shapefile to the db.
+    cursorQ.execute("""SELECT ImportSHP(?, 'NChucs', 'utf-8', 4326, 'geom_4326', 'HUC12RNG', 'POLYGON');""", (NChucs,))
+    # Add the NCBA blocks shapefile to the db.
+    cursorQ.execute("""SELECT ImportSHP(?, 'NCBAblocks', 'utf-8', 4326, 'geom_4326', 'BLOCK_QUAD', 'POLYGON');""", (NCBAblocks,))
+    # Add the NC counties shapefile to the db.
+    cursorQ.execute("""SELECT ImportSHP(?, 'NCcounties', 'utf-8', 4326, 'geom_4326', 'OBJECTID', 'POLYGON');""", (NCcounties,))
 
     # Load the GAP range csv, filter out some columns, rename others
     csvfile = inDir + gap_id + "_CONUS_RANGE_2001v1.csv"
@@ -214,7 +216,7 @@ def make_evaluation_db(eval_db, gap_id, inDir, outDir, shucLoc):
     conn.commit() # Commit and close here, reopen connection or else code throws errors.
     conn.close()
 
-    cursorQ, conn = spatialite(eval_db)
+    cursorQ, conn = spatialite(summ_db)
 
     sql1 = """
     ALTER TABLE sp_range RENAME TO garb;
@@ -234,18 +236,12 @@ def make_evaluation_db(eval_db, gap_id, inDir, outDir, shucLoc):
     cursorQ.executescript(sql1)
 
     sql2 = """
-    CREATE TABLE presence AS SELECT sp_range.strHUC12RNG, shucs.geom_102008
-                             FROM sp_range LEFT JOIN shucs ON sp_range.strHUC12RNG = shucs.HUC12RNG
+    CREATE TABLE presence AS SELECT sp_range.strHUC12RNG, NChucs.geom_4326
+                             FROM sp_range LEFT JOIN NChucs ON sp_range.strHUC12RNG = NChucs.HUC12RNG
                              WHERE sp_range.intGAPPresence = 1;
 
-    /* Transform to 4326 for displaying purposes*/
-    ALTER TABLE presence ADD COLUMN geom_4326 INTEGER;
-
-    UPDATE presence SET geom_4326 = Transform(geom_102008, 4326);
-
-    SELECT RecoverGeometryColumn('presence', 'geom_4326', 4326, 'POLYGON', 'XY');
-
-    SELECT ExportSHP('presence', 'geom_4326', '{0}{1}_presence_4326', 'utf-8');
+    SELECT RecoverGeometryColumn('presence', 'geom_4326', 4326, 'POLYGON',
+                                                          'XY');
     """.format(outDir, gap_id)
 
     cursorQ.executescript(sql2)
@@ -273,13 +269,13 @@ def get_GBIF_species_key(scientific_name):
     return key
 
 
-def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
+def summarize_by_features(features, eval_id, gap_id, summ_db, outDir, codeDir):
     """
     Uses occurrence data collected with the occurrence records wrangler repo
-    to evaluate the GAP range map for a species.  A table is created for the GAP
-    range and columns reporting the results of evaluation and validation are
-    populated after evaluating spatial relationships of occurrence records (circles)
-    and GAP range.
+    to summarize occurrence records by GAP hucs, NCBA blocks, and NC counties.
+    A table is created for the GAP range and columns reporting the results of
+    evaluation and validation are populated after evaluating spatial
+    relationships of occurrence records (circles) and GAP range.
 
     The results of this code are new columns in the GAP range table (in the db
     created for work in this repository) and a range shapefile.
@@ -288,14 +284,14 @@ def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
 
     Unresolved issues:
     1. Can the runtime be improved with spatial indexing?  Minimum bounding rectangle?
-    3. Locations of huc files. -- can sciencebase be used?
-    4. Condition data used on the parameters, such as filter_sets in the evaluations
+    2. Condition data used on the parameters, such as filter_sets in the evaluations
        table.
 
     Arguments:
+    features -- "NChucs", "NCcounties", or "NCblocks"
     eval_id -- name/code of the evaluation
     gap_id -- gap species code.
-    eval_db -- path to the evaluation database.  It should have been created with
+    summ_db -- path to the evaluation database.  It should have been created with
                 make_evaluation_db() so the schema is correct.
     outDir -- directory of
     codeDir -- directory of code repo
@@ -309,7 +305,7 @@ def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
     del cursor
 
     # Range evaluation database.
-    cursor, conn = spatialite(eval_db)
+    cursor, conn = spatialite(summ_db)
 
     cursor.executescript("""ATTACH DATABASE '{0}/evaluations.sqlite' AS params;""".format(codeDir))
 
@@ -318,21 +314,30 @@ def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
                                  Assess Agreement
      ############################################################################*/
 
-    /*#########################  Which HUCs contain an occurrence?
+    /*#########################  How many occurrences per feature?
      #############################################################*/
     /*  Intersect occurrence circles with hucs  */
     CREATE TABLE green AS
-                  SELECT shucs.HUC12RNG, ox.occ_id,
-                  CastToMultiPolygon(Intersection(shucs.geom_102008,
-                                                  ox.circle_albers)) AS geom_102008
-                  FROM shucs, evaluation_occurrences AS ox
-                  WHERE Intersects(shucs.geom_102008, ox.circle_albers);
+                  SELECT NCshucs.HUC12RNG, ox.occ_id,
+                  CastToMultiPolygon(Intersection(NCshucs.geom_4326,
+                                                  ox.circle_wgs84)) AS geom_4326
+                  FROM NCshucs, evaluation_occurrences AS ox
+                  WHERE Intersects(NCshucs.geom_4326, ox.circle_wgs84);
 
-    SELECT RecoverGeometryColumn('green', 'geom_102008', 102008, 'MULTIPOLYGON',
+    SELECT RecoverGeometryColumn('green', 'geom_4326', 4326, 'MULTIPOLYGON',
                                  'XY');
 
     /* In light of the error tolerance for the species, which occurrences can
        be attributed to a huc?  */
+
+    /* First, equal area geometries have to be created. */
+    ALTER TABLE green ADD COLUMN geom_102008 BLOB;
+
+    UPDATE green SET geom_102008 = Transform(geom_4326, 102008);
+
+    SELECT RecoverGeometryColumn('green', 'geom_102008', 102008,
+                                         'POLYGON', 'XY');
+
     CREATE TABLE orange AS
       SELECT green.HUC12RNG, green.occ_id,
              100 * (Area(green.geom_102008) / Area(ox.circle_albers))
@@ -356,16 +361,7 @@ def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
                           GROUP BY HUC12RNG);
 
 
-    /*  Find hucs that contained gbif occurrences, but were not in gaprange and
-    insert them into sp_range as new records.  Record the occurrence count */
-    INSERT INTO sp_range (strHUC12RNG, eval_cnt)
-                SELECT orange.HUC12RNG, COUNT(occ_id)
-                FROM orange LEFT JOIN sp_range ON sp_range.strHUC12RNG = orange.HUC12RNG
-                WHERE sp_range.strHUC12RNG IS NULL
-                GROUP BY orange.HUC12RNG;
-
-
-    /*############################  Does HUC contain an occurrence?
+    /*############################  How long since occurrence record in each feature?
     #############################################################*/
     ALTER TABLE sp_range ADD COLUMN eval INTEGER;
 
@@ -377,27 +373,6 @@ def evaluate_GAP_range(eval_id, gap_id, eval_db, outDir, codeDir):
                             FROM params.evaluations
                             WHERE evaluation_id = '{0}'
                             AND species_id = '{1}');
-
-
-    /*  For new records, put zeros in GAP range attribute fields  */
-    UPDATE sp_range
-    SET intGAPOrigin = 0,
-        intGAPPresence = 0,
-        intGAPReproduction = 0,
-        intGAPSeason = 0,
-        eval = 0
-    WHERE eval_cnt >= 0 AND intGAPOrigin IS NULL;
-
-
-    /*###########################################  Validation column
-    #############################################################*/
-    /*  Populate a validation column.  If an evaluation supports the GAP ranges
-    then it is validated */
-    ALTER TABLE sp_range ADD COLUMN validated_presence INTEGER NOT NULL DEFAULT 0;
-
-    UPDATE sp_range
-    SET validated_presence = 1
-    WHERE eval = 1;
 
 
     /*#############################################################################
