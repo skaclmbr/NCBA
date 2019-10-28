@@ -158,15 +158,13 @@ def download_GAP_range_CONUS2001v1(gap_id, toDir):
     # Return path to range file without extension
     return rng_zip.replace('.zip', '')
 
-def make_summary_db(summary_db, occ_db, gap_id, inDir, outDir, NChucs,
+def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs,
                     NCBAblocks, NCcounties):
     """
     Builds an sqlite database in which to store NC bird occurrence information.
 
     Arguments:
     summary_db -- name of database to create for evaluation.
-    occ_db -- path to database with occurrence records to use (one
-                generated from occurrence-record-wrangler code)
     gap_id -- gap species code. For example, 'bAMROx'
     NChucs -- path to GAP's 12 digit hucs shapefile for NC.
     NCBAblocks -- path to NCBA blocks shapefile.
@@ -247,16 +245,33 @@ def make_summary_db(summary_db, occ_db, gap_id, inDir, outDir, NChucs,
     """.format(outDir, gap_id)
 
     cursorQ.executescript(sql2)
+    conn.commit()
+    conn.close()
+    del cursorQ
 
+def occurrence_records_to_db(occurrence_db, summary_db, years, months):
+    """
+    Loads occurrence records into a summary database.
+
+    (str, str, list, list) --> action
+
+    Arguments:
+    occurrence_db -- path to the occurrence-records-wrangler database with
+                     records to use.
+    summary_db -- path to the summary database.
+    years --  years to include.  Format as a string version of a list:  "2002,2004,2019"
+    months -- months to include.  Format as a string version of a list: "11,12,1,2"
+    """
     #################################  Read in occurrence records
     #############################################################
+    # Connect to the summary database
+    cursor, conn = spatialite(summary_db)
+
     # Attach occurrence database
-    cursor.execute("ATTACH DATABASE ? AS occs;", (occ_db,))
+    cursor.execute("ATTACH DATABASE ? AS occs;", (occurrence_db,))
 
     # Create table of occurrences that fit within evaluation parameters
-    years =
     years = tuple([x.strip() for x in years.split(',')])
-    months =
     months = tuple([x.strip().zfill(2) for x in months.split(',')])
     cursor.execute("""CREATE TABLE evaluation_occurrences AS
                        SELECT * FROM occs.occurrences
@@ -278,9 +293,8 @@ def make_summary_db(summary_db, occ_db, gap_id, inDir, outDir, NChucs,
     subs = outDir + summary_name + "_points"
     cursor.execute("""SELECT ExportSHP('evaluation_occurrences', 'geom_xy4326', ?, 'utf-8');""", (subs,))
     '''
+
     conn.commit()
-    conn.close()
-    del cursorQ
 
 def get_GBIF_species_key(scientific_name):
     """
@@ -302,7 +316,7 @@ def get_GBIF_species_key(scientific_name):
     return key
 
 
-def summarize_by_features(features='NChucs', summary_id, gap_id, summary_db, outDir, codeDir):
+def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, codeDir):
     """ REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE
     Uses occurrence data collected with the occurrence records wrangler repo
     to summarize occurrence records by GAP hucs, NCBA blocks, and NC counties.
