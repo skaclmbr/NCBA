@@ -1,3 +1,21 @@
+def get_GBIF_species_key(scientific_name):
+    """
+    Description: Species-concepts change over time, sometimes with a spatial
+    component (e.g., changes in range delination of closely related species or
+    subspecies).  Retrieval of data for the wrong species-concept would introduce
+    error.  Therefore, the first step is to sort out species concepts of different
+    datasets to identify concepts that can be investigated.
+
+    For this project/effort, individual species-concepts will be identified,
+    crosswalked to concepts from various datasets, and stored in a table within
+    a database.
+
+    For now, a single species has been manually entered into species-concepts
+    for development.
+    """
+    from pygbif import species
+    key = species.name_backbone(name = 'Lithobates capito', rank='species')['usageKey']
+    return key
 
 # Function for connecting to sqlite database and loading spatialite capabilites
 def spatialite(db):
@@ -126,7 +144,6 @@ def MapShapefilePolygons(map_these, title):
     plt.title(title, fontsize=20, pad=-40, backgroundcolor='w')
     return
 
-
 def download_GAP_range_CONUS2001v1(gap_id, toDir):
     """
     Downloads GAP Range CONUS 2001 v1 file and returns path to the unzipped
@@ -158,8 +175,7 @@ def download_GAP_range_CONUS2001v1(gap_id, toDir):
     # Return path to range file without extension
     return rng_zip.replace('.zip', '')
 
-def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs,
-                    NCBAblocks, NCcounties):
+def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs, NCBAblocks, NCcounties):
     """
     Builds an sqlite database in which to store NC bird occurrence information.
 
@@ -183,24 +199,7 @@ def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs,
     # Create the database
     cursorQ, conn = spatialite(summary_db)
 
-    cursorQ.executescript("""SELECT InitSpatialMetadata(1);
-                       INSERT into spatial_ref_sys
-                         (srid, auth_name, auth_srid, proj4text, srtext)
-                         values (102008, 'ESRI', 102008, '+proj=aea +lat_1=20 +lat_2=60
-                         +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +datum=NAD83 +units=m
-                         +no_defs ', 'PROJCS["North_America_Albers_Equal_Area_Conic",
-                         GEOGCS["GCS_North_American_1983",
-                         DATUM["North_American_Datum_1983",
-                         SPHEROID["GRS_1980",6378137,298.257222101]],
-                         PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],
-                         PROJECTION["Albers_Conic_Equal_Area"],
-                         PARAMETER["False_Easting",0],
-                         PARAMETER["False_Northing",0],
-                         PARAMETER["longitude_of_center",-96],
-                         PARAMETER["Standard_Parallel_1",20],
-                         PARAMETER["Standard_Parallel_2",60],
-                         PARAMETER["latitude_of_center",40],
-                         UNIT["Meter",1],AUTHORITY["EPSG","102008"]]');""")
+    cursorQ.executescript("""SELECT InitSpatialMetadata(1);""")
 
     # Add the NChucs shapefile to the db.
     cursorQ.execute("""SELECT ImportSHP(?, 'NChucs', 'utf-8', 4326, 'geom_4326', 'HUC12RNG', 'POLYGON');""", (NChucs,))
@@ -245,9 +244,12 @@ def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs,
     """.format(outDir, gap_id)
 
     cursorQ.executescript(sql2)
+
     conn.commit()
     conn.close()
     del cursorQ
+
+    return
 
 def occurrence_records_to_db(occurrence_db, summary_db, years, months):
     """
@@ -273,61 +275,35 @@ def occurrence_records_to_db(occurrence_db, summary_db, years, months):
     # Create table of occurrences that fit within evaluation parameters
     years = tuple([x.strip() for x in years.split(',')])
     months = tuple([x.strip().zfill(2) for x in months.split(',')])
-    cursor.execute("""CREATE TABLE evaluation_occurrences AS
+    cursor.execute("""CREATE TABLE occurrence_records AS
                        SELECT * FROM occs.occurrences
                        WHERE STRFTIME('%Y', OccurrenceDate) IN {0}
                            AND STRFTIME('%m', OccurrenceDate) IN {1};""".format(years, months))
 
-    '''                                                              IS THIS CODE NECESSARY?  MOVE TO NOTEBOOK?
-    # Export occurrence circles as a shapefile (all seasons)
-    cursor.execute("""SELECT RecoverGeometryColumn('evaluation_occurrences', 'circle_wgs84',
+    # Recover geometry
+    cursor.execute("""SELECT RecoverGeometryColumn('occurrence_records', 'circle_wgs84',
                       4326, 'POLYGON', 'XY');""")
-
-    sql = """SELECT ExportSHP('evaluation_occurrences', 'circle_wgs84', ?, 'utf-8');"""
-    subs = outDir + summary_name + "_circles"
-    cursor.execute(sql, (subs,))
-
-    # Export occurrence 'points' as a shapefile (all seasons)
-    cursor.execute("""SELECT RecoverGeometryColumn('evaluation_occurrences', 'geom_xy4326',
-                      4326, 'POINT', 'XY');""")
-    subs = outDir + summary_name + "_points"
-    cursor.execute("""SELECT ExportSHP('evaluation_occurrences', 'geom_xy4326', ?, 'utf-8');""", (subs,))
-    '''
-
+    #cursor.execute("""SELECT RecoverGeometryColumn('occurrence_records', 'geom_xy4326',
+    #                  4326, 'POINT', 'XY');""")
+    # Add a geometry in equal area projection
+    cursor.executescript("""ALTER TABLE occurrence_records ADD COLUMN circle_5070 BLOB;
+                        UPDATE occurrence_records SET circle_5070 = Transform(circle_wgs84, 5070);
+                        SELECT RecoverGeometryColumn('occurrence_records', 'circle_5070', 5070,
+                                         'POLYGON', 'XY');""")
     conn.commit()
-
-def get_GBIF_species_key(scientific_name):
-    """
-    Description: Species-concepts change over time, sometimes with a spatial
-    component (e.g., changes in range delination of closely related species or
-    subspecies).  Retrieval of data for the wrong species-concept would introduce
-    error.  Therefore, the first step is to sort out species concepts of different
-    datasets to identify concepts that can be investigated.
-
-    For this project/effort, individual species-concepts will be identified,
-    crosswalked to concepts from various datasets, and stored in a table within
-    a database.
-
-    For now, a single species has been manually entered into species-concepts
-    for development.
-    """
-    from pygbif import species
-    key = species.name_backbone(name = 'Lithobates capito', rank='species')['usageKey']
-    return key
-
+    return
 
 def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, codeDir):
     """ REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE
     Uses occurrence data collected with the occurrence records wrangler repo
-    to summarize occurrence records by GAP hucs, NCBA blocks, and NC counties.
-    A table is created for the GAP range and columns reporting the results of
-    evaluation and validation are populated after evaluating spatial
-    relationships of occurrence records (circles) and GAP range.
+    to summarize occurrence records by feature layers such as counties or hucs.
+    Columns are added to feature tables that report summary information
+    Columns added:
+    record_count -- how many records were attributed to the feature
+    sufficient_count -- did the number of records meet the minimum_count for the species?
 
-    The results of this code are new columns in the GAP range table (in the db
-    created for work in this repository) and a range shapefile.
-
-    The primary use of code like this would be range evaluation and revision.
+    The results of this code are new columns in the feature tables (in the db
+    created for work in this repository).
 
     Unresolved issues:
     1. Can the runtime be improved with spatial indexing?  Minimum bounding rectangle?
@@ -346,6 +322,13 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     import sqlite3
     import os
 
+    if features == "NChucs":
+        IDfield = "HUC12RNG"
+    elif features == "NCcounties":
+        IDfield = "OBJECTID"
+    elif features == "NCBAblocks":
+        IDfield = "BLOCK_QUAD"
+
     #cursor, conn = spatialite(codeDir + "/evaluations.sqlite")
     #method = cursor.execute("SELECT method FROM evaluations WHERE evaluation_id = ?;", (summary_id,)).fetchone()[0]
     #conn.close()
@@ -357,105 +340,57 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     cursor.executescript("""ATTACH DATABASE '{0}/evaluations.sqlite' AS params;""".format(codeDir))
 
     sql2="""
-    /*#############################################################################
+    /*##########################################################################
                                  Assess Agreement
-     ############################################################################*/
+     #########################################################################*/
 
     /*#########################  How many occurrences per feature?
      #############################################################*/
     /*  Intersect occurrence circles with features  */
     CREATE TABLE green AS
-                  SELECT NChucs.HUC12RNG, ox.occ_id,
-                  CastToMultiPolygon(Intersection(NChucs.geom_4326,
-                                                  ox.circle_wgs84)) AS geom_4326
-                  FROM NChucs, evaluation_occurrences AS ox
-                  WHERE Intersects(NCshucs.geom_4326, ox.circle_wgs84);
+                 SELECT {3}.{4}, ox.occ_id,
+                 CastToMultiPolygon(Intersection({3}.geom_4326,
+                                                 ox.circle_wgs84)) AS geom_4326
+                 FROM {3}, occurrence_records AS ox
+                 WHERE Intersects({3}.geom_4326, ox.circle_wgs84);
+    SELECT RecoverGeometryColumn('green', 'geom_4326', 4326, 'MULTIPOLYGON', 'XY');
 
-    SELECT RecoverGeometryColumn('green', 'geom_4326', 4326, 'MULTIPOLYGON',
-                                 'XY');
-
-    /* First, equal area geometries have to be created. */
-    ALTER TABLE green ADD COLUMN geom_102008 BLOB;
-
-    UPDATE green SET geom_102008 = Transform(geom_4326, 102008);
-
-    SELECT RecoverGeometryColumn('green', 'geom_102008', 102008,
-                                         'POLYGON', 'XY');
+    /* Projected (equal area) geometries have to be created. */
+    ALTER TABLE green ADD COLUMN geom_5070 BLOB;
+    UPDATE green SET geom_5070 = Transform(geom_4326, 5070);
+    SELECT RecoverGeometryColumn('green', 'geom_5070', 5070, 'MULTIPOLYGON', 'XY');
 
     CREATE TABLE orange AS
-      SELECT green.HUC12RNG, green.occ_id,
-             100 * (Area(green.geom_102008) / Area(ox.circle_albers))
-                AS proportion_circle
+      SELECT green.{4}, green.occ_id,
+             100 * (Area(green.geom_5070) / Area(ox.circle_5070)) AS proportion_circle
       FROM green
-           LEFT JOIN evaluation_occurrences AS ox
+           LEFT JOIN occurrence_records AS ox
            ON green.occ_id = ox.occ_id
       WHERE proportion_circle BETWEEN (100 - (SELECT error_tolerance
                                               FROM params.evaluations
                                               WHERE evaluation_id = '{0}'
                                               AND species_id = '{1}'))
-                              AND 100;
+                                       AND 100;
+    DROP TABLE green;
 
     /*  How many occurrences in each huc that had an occurrence? */
-    ALTER TABLE sp_range ADD COLUMN eval_cnt INTEGER;
+    ALTER TABLE {3} ADD COLUMN record_count INTEGER;
 
-    UPDATE sp_range
-    SET eval_cnt = (SELECT COUNT(occ_id)
-                          FROM orange
-                          WHERE HUC12RNG = sp_range.strHUC12RNG
-                          GROUP BY HUC12RNG);
-
-
-    /*############################  How long since occurrence record in each feature?
-    #############################################################*/
-    ALTER TABLE sp_range ADD COLUMN eval INTEGER;
-
-    /*  Record in sp_range that gap and gbif agreed on species presence, in light
-    of the min_count for the species. */
-    UPDATE sp_range
-    SET eval = 1
-    WHERE eval_cnt >= (SELECT min_count
-                            FROM params.evaluations
-                            WHERE evaluation_id = '{0}'
-                            AND species_id = '{1}');
-
-
-    /*#############################################################################
-                                   Export Maps
-     ############################################################################*/
-    /*  Create a version of sp_range with geometry  */
-    CREATE TABLE new_range AS
-                  SELECT sp_range.*, shucs.geom_102008
-                  FROM sp_range LEFT JOIN shucs ON sp_range.strHUC12RNG = shucs.HUC12RNG;
-
-    ALTER TABLE new_range ADD COLUMN geom_4326 INTEGER;
-
-    SELECT RecoverGeometryColumn('new_range', 'geom_102008', 102008, 'POLYGON', 'XY');
-
-    UPDATE new_range SET geom_4326 = Transform(geom_102008, 4326);
-
-    SELECT RecoverGeometryColumn('new_range', 'geom_4326', 4326, 'POLYGON', 'XY');
-
-    SELECT ExportSHP('new_range', 'geom_4326', '{2}{1}_CONUS_Range_2001v1_eval',
-                     'utf-8');
-
-    /* Make a shapefile of evaluation results */
-    CREATE TABLE eval AS
-                  SELECT strHUC12RNG, eval, geom_4326
-                  FROM new_range
-                  WHERE eval >= 0;
-
-    SELECT RecoverGeometryColumn('eval', 'geom_4326', 4326, 'POLYGON', 'XY');
-
-    SELECT ExportSHP('eval', 'geom_4326', '{2}{1}_eval', 'utf-8');
-
-
-    /*#############################################################################
-                                 Clean Up
-    #############################################################################*/
-    /*  */
-    DROP TABLE green;
+    UPDATE {3} SET record_count = (SELECT COUNT(occ_id)
+                                      FROM orange
+                                      WHERE {4} = {3}.{4}
+                                      GROUP BY {4});
     DROP TABLE orange;
-    """.format(summary_id, gap_id, outDir, features)
+
+    /*  Did each feature have enough records? */
+    ALTER TABLE {3} ADD COLUMN sufficient_count INTEGER;
+
+    UPDATE {3} SET sufficient_count = 1
+                  WHERE record_count >= (SELECT minimum_count
+                                        FROM params.evaluations
+                                        WHERE evaluation_id = '{0}'
+                                        AND species_id = '{1}');
+    """.format(summary_id, gap_id, outDir, features, IDfield)
 
     try:
         cursor.executescript(sql2)
@@ -464,3 +399,4 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
 
     conn.commit()
     conn.close()
+    return
