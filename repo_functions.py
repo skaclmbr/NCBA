@@ -348,7 +348,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
      #############################################################*/
     /*  Intersect occurrence circles with features  */
     CREATE TABLE green AS
-                 SELECT {3}.{4}, ox.occ_id,
+                 SELECT {3}.{4}, ox.occ_id, ox.occurrenceDate, ox.retrievalDate,
                  CastToMultiPolygon(Intersection({3}.geom_4326,
                                                  ox.circle_wgs84)) AS geom_4326
                  FROM {3}, occurrence_records AS ox
@@ -361,7 +361,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     SELECT RecoverGeometryColumn('green', 'geom_5070', 5070, 'MULTIPOLYGON', 'XY');
 
     CREATE TABLE orange AS
-      SELECT green.{4}, green.occ_id,
+      SELECT green.{4}, green.occ_id, green.occurrenceDate, green.retrievalDate,
              100 * (Area(green.geom_5070) / Area(ox.circle_5070)) AS proportion_circle
       FROM green
            LEFT JOIN occurrence_records AS ox
@@ -371,7 +371,6 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                                               WHERE evaluation_id = '{0}'
                                               AND species_id = '{1}'))
                                        AND 100;
-    DROP TABLE green;
 
     /*  How many occurrences in each huc that had an occurrence? */
     ALTER TABLE {3} ADD COLUMN record_count INTEGER;
@@ -380,7 +379,6 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                                       FROM orange
                                       WHERE {4} = {3}.{4}
                                       GROUP BY {4});
-    DROP TABLE orange;
 
     /*  Did each feature have enough records? */
     ALTER TABLE {3} ADD COLUMN sufficient_count INTEGER;
@@ -390,6 +388,24 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                                         FROM params.evaluations
                                         WHERE evaluation_id = '{0}'
                                         AND species_id = '{1}');
+
+    /*###################################   Years since last record
+    #############################################################*/
+    ALTER TABLE {3} ADD COLUMN years_since_record INTEGER;
+
+    CREATE VIEW purple AS
+                        SELECT {4}, retrievalDate - occurrenceDate AS age
+                        FROM orange
+                        GROUP BY {4}
+                        HAVING MIN(age);
+
+    UPDATE {3}
+    SET years_since_record = (SELECT purple.age
+                              FROM purple
+                              WHERE purple.{4} = {3}.{4});
+    DROP VIEW purple;
+    DROP TABLE green;
+    DROP TABLE orange;
     """.format(summary_id, gap_id, outDir, features, IDfield)
 
     try:

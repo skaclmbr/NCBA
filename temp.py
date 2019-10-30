@@ -21,11 +21,11 @@ functions.occurrence_records_to_db(occurrence_db, summary_db,
                                     "2014,2015,2016,2017,2018,2019",
                                     "1,2,3,4,5,6,7,8,9,10,11,12")
 
-functions.summarize_by_features(features='NChucs', summary_id = "example1",
+functions.summarize_by_features(features='NCcounties', summary_id = "example1",
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
-functions.summarize_by_features(features='NCcounties', summary_id = "example1",
+functions.summarize_by_features(features='NChucs', summary_id = "example1",
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
@@ -36,6 +36,30 @@ functions.summarize_by_features(features='NCBAblocks', summary_id = "example1",
 
 
 
+###########################################################################################################################
+select distinct retrievalDate from occurrence_records limit 1;
+select distinct occurrenceDate, retrievalDate, retrievalDate - occurrenceDate from occurrence_records;
+
+SELECT age FROM (SELECT occurrenceDate, retrievalDate - occurrenceDate AS age
+                        FROM orange
+                        ORDER BY occurrenceDate DESC
+                        LIMIT 1);
+
+SELECT MAX(age) FROM (SELECT occurrenceDate, retrievalDate - occurrenceDate AS age
+                      FROM orange
+                      ORDER BY occurrenceDate DESC
+                      LIMIT 500);
+
+ALTER TABLE NCcounties ADD COLUMN years_since_record INTEGER;
+
+CREATE VIEW purple AS
+                    SELECT OBJECTID, retrievalDate - occurrenceDate AS age
+                    FROM orange
+                    GROUP BY OBJECTID
+                    HAVING MIN(age);
+
+UPDATE NCcounties
+SET years_since_record = (SELECT purple.age FROM purple WHERE purple.OBJECTID = NCcounties.OBJECTID);
 
 
 ##########################################################################################
