@@ -4,14 +4,15 @@ codeDir = "/users/nmtarr/code/NC-BBA/"
 dataDir = projDir + "data/"
 inDir = dataDir + "inputs/"
 outDir = dataDir + "outputs/"
-summary_db = outDir + "testDB.sqlite"
 gap_id = "bloshx"
+summary_id = "summer1"
+summary_db = outDir + gap_id + "_summer1.sqlite"
 NChucs = inDir + "NC_hucs"
 NCBAblocks = inDir + "ncba_blocks"
 NCcounties = inDir + "NC_counties"
-occurrence_db = outDir + "bloshx0GBIFr19GBIFf8.sqlite"
+occurrence_db = outDir + "bblskx0GBIFr19GBIFf8.sqlite"
 
-# functions.download_GAP_range_CONUS2001v1(gap_id=gap_id, toDir=inDir)
+#functions.download_GAP_range_CONUS2001v1(gap_id=gap_id, toDir=inDir)
 
 functions.make_summary_db(summary_db=summary_db, gap_id=gap_id, inDir=inDir,
                           outDir=outDir, NChucs=NChucs, NCBAblocks=NCBAblocks,
@@ -19,23 +20,45 @@ functions.make_summary_db(summary_db=summary_db, gap_id=gap_id, inDir=inDir,
 
 functions.occurrence_records_to_db(occurrence_db, summary_db,
                                     "2014,2015,2016,2017,2018,2019",
-                                    "1,2,3,4,5,6,7,8,9,10,11,12")
+                                    "4,5,6,7,8,")
 
-functions.summarize_by_features(features='NCcounties', summary_id = "example1",
+functions.summarize_by_features(features='NCcounties', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
-functions.summarize_by_features(features='NChucs', summary_id = "example1",
+functions.summarize_by_features(features='NChucs', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
-functions.summarize_by_features(features='NCBAblocks', summary_id = "example1",
+functions.summarize_by_features(features='NCBAblocks', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
 
 
 
+
+################################################################################
+################################################################################
+functions.export_shapefile(database=summary_db, table='NCcounties',
+                           geometry_column='geom_4326',
+                           output_directory=outDir,
+                           shapefile_name='bloshxCounty', encoding='utf-8')
+
+functions.export_shapefile(database=summary_db, table='NChucs',
+                           geometry_column='geom_4326',
+                           output_directory=outDir,
+                           shapefile_name='bloshxHucs', encoding='utf-8')
+
+functions.export_shapefile(database=summary_db, table='NCBAblocks',
+                           geometry_column='geom_4326',
+                           output_directory=outDir,
+                           shapefile_name='bloshxBlocks', encoding='utf-8')
+
+
+
+###########################################################################################################################
+###########################################################################################################################
 ###########################################################################################################################
 select distinct retrievalDate from occurrence_records limit 1;
 select distinct occurrenceDate, retrievalDate, retrievalDate - occurrenceDate from occurrence_records;

@@ -1,3 +1,4 @@
+# Functions to help determine GBIF species code
 def get_GBIF_species_key(scientific_name):
     """
     Description: Species-concepts change over time, sometimes with a spatial
@@ -23,7 +24,7 @@ def spatialite(db):
     Creates a connection and cursor for sqlite db and enables
     spatialite extension and shapefile functions.
 
-    (db) --> connection, cursor
+    (db) --> cursor, connection
 
     Arguments:
     db -- path to the db you want to create or connect to.
@@ -38,7 +39,31 @@ def spatialite(db):
 
     return cursor, connection
 
-# Define a function for displaying the maps that will be created.
+# Function for exporting a shapefile from summary database
+def export_shapefile(database, table, geometry_column, output_directory,
+                    shapefile_name, encoding='utf-8'):
+    """
+    Exports a shapefile from the database
+
+    Arguments:
+    database -- path to the database from which to export
+    table -- name of the table to create shapefil from
+    geometry_column -- name of the column containing geometries
+    output_directory -- path to directory to save to
+    shapefile_name -- what to name the output file
+    encoding -- defaults to 'utf-8'
+    """
+    cursor, conn = spatialite(database)
+    # Export occurrence 'points' as a shapefile (all seasons)
+    cursor.execute("""SELECT ExportSHP('{0}', '{1}', '{2}{3}', '{4}');
+                   """.format(table, geometry_column, output_directory,
+                              shapefile_name, encoding))
+    conn.commit()
+    conn.close()
+    del cursor
+    return
+
+# Function for displaying the maps that will be created.
 def MapShapefilePolygons(map_these, title):
     """
     Displays shapefiles on a simple CONUS basemap.  Maps are plotted in the order
@@ -144,6 +169,7 @@ def MapShapefilePolygons(map_these, title):
     plt.title(title, fontsize=20, pad=-40, backgroundcolor='w')
     return
 
+# Function to get GAP range from ScienceBase
 def download_GAP_range_CONUS2001v1(gap_id, toDir):
     """
     Downloads GAP Range CONUS 2001 v1 file and returns path to the unzipped
@@ -175,6 +201,7 @@ def download_GAP_range_CONUS2001v1(gap_id, toDir):
     # Return path to range file without extension
     return rng_zip.replace('.zip', '')
 
+# Function to make a database for housing layers and occurrence records
 def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs, NCBAblocks, NCcounties):
     """
     Builds an sqlite database in which to store NC bird occurrence information.
@@ -234,16 +261,27 @@ def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs, NCBAblocks, NCcou
     """
     cursorQ.executescript(sql1)
 
+
+    '''  CAN THIS BE DELETED?????????????????????????????????????????????????????
     sql2 = """
     CREATE TABLE presence AS SELECT sp_range.strHUC12RNG, NChucs.geom_4326
                              FROM sp_range LEFT JOIN NChucs ON sp_range.strHUC12RNG = NChucs.HUC12RNG
                              WHERE sp_range.intGAPPresence = 1;
 
-    SELECT RecoverGeometryColumn('presence', 'geom_4326', 4326, 'POLYGON',
-                                                          'XY');
+    SELECT RecoverGeometryColumn('presence', 'geom_4326', 4326, 'POLYGON', 'XY');
+    """.format(outDir, gap_id)
+    cursorQ.executescript(sql2)
+    '''
+
+    sql3 = """
+    CREATE TABLE season AS SELECT sp_range.strHUC12RNG, sp_range.strGAPSeason, NChucs.geom_4326
+                             FROM sp_range LEFT JOIN NChucs ON sp_range.strHUC12RNG = NChucs.HUC12RNG
+                             WHERE sp_range.intGAPPresence = 1;
+
+    SELECT RecoverGeometryColumn('season', 'geom_4326', 4326, 'POLYGON', 'XY');
     """.format(outDir, gap_id)
 
-    cursorQ.executescript(sql2)
+    cursorQ.executescript(sql3)
 
     conn.commit()
     conn.close()
@@ -251,6 +289,7 @@ def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs, NCBAblocks, NCcou
 
     return
 
+# Function to load occurrence records into the summary database
 def occurrence_records_to_db(occurrence_db, summary_db, years, months):
     """
     Loads occurrence records into a summary database.
@@ -293,6 +332,7 @@ def occurrence_records_to_db(occurrence_db, summary_db, years, months):
     conn.commit()
     return
 
+# Function to perform summaries of records within feature polygons
 def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, codeDir):
     """ REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE REVISE
     Uses occurrence data collected with the occurrence records wrangler repo
@@ -337,12 +377,8 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     # Connect to range evaluation database.
     cursor, conn = spatialite(summary_db)
 
-    cursor.executescript("""ATTACH DATABASE '{0}/evaluations.sqlite' AS params;""".format(codeDir))
-
+    cursor.execute("""ATTACH DATABASE '{0}/evaluations.sqlite' AS params;""".format(codeDir))
     sql2="""
-    /*##########################################################################
-                                 Assess Agreement
-     #########################################################################*/
 
     /*#########################  How many occurrences per feature?
      #############################################################*/
