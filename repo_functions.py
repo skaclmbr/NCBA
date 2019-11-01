@@ -364,10 +364,13 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
 
     if features == "NChucs":
         IDfield = "HUC12RNG"
+        overlapField = "min_overlap_huc12"
     elif features == "NCcounties":
         IDfield = "OBJECTID"
+        overlapField = "min_overlap_county"
     elif features == "NCBAblocks":
         IDfield = "BLOCK_QUAD"
+        overlapField = "min_overlap_block"
 
     #cursor, conn = spatialite(codeDir + "/evaluations.sqlite")
     #method = cursor.execute("SELECT method FROM evaluations WHERE evaluation_id = ?;", (summary_id,)).fetchone()[0]
@@ -396,17 +399,17 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     UPDATE green SET geom_5070 = Transform(geom_4326, 5070);
     SELECT RecoverGeometryColumn('green', 'geom_5070', 5070, 'MULTIPOLYGON', 'XY');
 
+    /*   */
     CREATE TABLE orange AS
       SELECT green.{4}, green.occ_id, green.occurrenceDate, green.retrievalDate,
              100 * (Area(green.geom_5070) / Area(ox.circle_5070)) AS proportion_circle
       FROM green
            LEFT JOIN occurrence_records AS ox
            ON green.occ_id = ox.occ_id
-      WHERE proportion_circle BETWEEN (100 - (SELECT error_tolerance
-                                              FROM params.evaluations
-                                              WHERE evaluation_id = '{0}'
-                                              AND species_id = '{1}'))
-                                       AND 100;
+      WHERE proportion_circle >= (SELECT {5}
+                                  FROM params.evaluations
+                                  WHERE evaluation_id = '{0}'
+                                  AND species_id = '{1}');
 
     /*  How many occurrences in each huc that had an occurrence? */
     ALTER TABLE {3} ADD COLUMN record_count INTEGER;
@@ -442,7 +445,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     DROP VIEW purple;
     DROP TABLE green;
     DROP TABLE orange;
-    """.format(summary_id, gap_id, outDir, features, IDfield)
+    """.format(summary_id, gap_id, outDir, features, IDfield, overlapField)
 
     try:
         cursor.executescript(sql2)

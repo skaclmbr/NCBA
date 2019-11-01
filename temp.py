@@ -4,13 +4,13 @@ codeDir = "/users/nmtarr/code/NC-BBA/"
 dataDir = projDir + "data/"
 inDir = dataDir + "inputs/"
 outDir = dataDir + "outputs/"
-gap_id = "bloshx"
+gap_id = "bwewax"
 summary_id = "summer1"
 summary_db = outDir + gap_id + "_summer1.sqlite"
 NChucs = inDir + "NC_hucs"
 NCBAblocks = inDir + "ncba_blocks"
 NCcounties = inDir + "NC_counties"
-occurrence_db = outDir + "bblskx0GBIFr19GBIFf8.sqlite"
+occurrence_db = outDir + gap_id + "0GBIFr19GBIFf8.sqlite"
 
 #functions.download_GAP_range_CONUS2001v1(gap_id=gap_id, toDir=inDir)
 
