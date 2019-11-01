@@ -399,7 +399,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     UPDATE green SET geom_5070 = Transform(geom_4326, 5070);
     SELECT RecoverGeometryColumn('green', 'geom_5070', 5070, 'MULTIPOLYGON', 'XY');
 
-    /*   */
+    /* Select records with area greater or equal to the minimum overlap  */
     CREATE TABLE orange AS
       SELECT green.{4}, green.occ_id, green.occurrenceDate, green.retrievalDate,
              100 * (Area(green.geom_5070) / Area(ox.circle_5070)) AS proportion_circle
@@ -442,7 +442,23 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     SET years_since_record = (SELECT purple.age
                               FROM purple
                               WHERE purple.{4} = {3}.{4});
+
+    /*################ Features touching ones with sufficient count
+    #############################################################*/
+    CREATE TABLE documented AS
+                        SELECT St_union(geom_4326) AS geom_4326
+                        FROM {3}
+                        WHERE sufficient_count = 1;
+    SELECT RecoverGeometryColumn('documented', 'geom_4326', 4326, 'MULTIPOLYGON', 'XY');
+
+    ALTER TABLE {3} ADD COLUMN target INTEGER;
+
+    UPDATE {3}
+    SET target = 1
+    WHERE Touches(geom_4326, (SELECT geom_4326 FROM documented));
+
     DROP VIEW purple;
+    DROP TABLE documented;
     DROP TABLE green;
     DROP TABLE orange;
     """.format(summary_id, gap_id, outDir, features, IDfield, overlapField)
