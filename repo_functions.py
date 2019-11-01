@@ -443,7 +443,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                               FROM purple
                               WHERE purple.{4} = {3}.{4});
 
-    /*################ Features touching ones with sufficient count
+    /*######################## Find features to target for sampling
     #############################################################*/
     CREATE TABLE documented AS
                         SELECT St_union(geom_4326) AS geom_4326
@@ -456,7 +456,12 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     UPDATE {3}
     SET target = 1
     WHERE Touches(geom_4326, (SELECT geom_4326 FROM documented));
-
+    /* OR record_count BETWEEN 0 AND (SELECT minimum_count
+                                        FROM params.evaluations
+                                        WHERE evaluation_id = '{0}'
+                                        AND species_id = '{1}'))
+    OR Overlaps(geom_4326, season.geom_4326)
+    OR Equals(geom_4326, season.geom_4326);*/
     DROP VIEW purple;
     DROP TABLE documented;
     DROP TABLE green;
