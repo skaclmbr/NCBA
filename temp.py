@@ -4,7 +4,7 @@ codeDir = "/users/nmtarr/code/NC-BBA/"
 dataDir = projDir + "data/"
 inDir = dataDir + "inputs/"
 outDir = dataDir + "outputs/"
-gap_id = "bwewax"
+gap_id = "bblskx"
 summary_id = "summer1"
 summary_db = outDir + gap_id + "_summer1.sqlite"
 NChucs = inDir + "NC_hucs"
@@ -12,7 +12,7 @@ NCBAblocks = inDir + "ncba_blocks"
 NCcounties = inDir + "NC_counties"
 occurrence_db = outDir + gap_id + "0GBIFr19GBIFf8.sqlite"
 
-#functions.download_GAP_range_CONUS2001v1(gap_id=gap_id, toDir=inDir)
+functions.download_GAP_range_CONUS2001v1(gap_id=gap_id, toDir=inDir)
 
 functions.make_summary_db(summary_db=summary_db, gap_id=gap_id, inDir=inDir,
                           outDir=outDir, NChucs=NChucs, NCBAblocks=NCBAblocks,
@@ -22,18 +22,17 @@ functions.occurrence_records_to_db(occurrence_db, summary_db,
                                     "2014,2015,2016,2017,2018,2019",
                                     "4,5,6,7,8,")
 
-functions.summarize_by_features(features='NCcounties', summary_id = summary_id,
+functions.summarize_by_features(features='NChucs', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
-functions.summarize_by_features(features='NChucs', summary_id = summary_id,
+functions.summarize_by_features(features='NCcounties', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
 
 functions.summarize_by_features(features='NCBAblocks', summary_id = summary_id,
                         gap_id = gap_id, summary_db=summary_db,
                         outDir=outDir, codeDir=codeDir)
-
 
 
 

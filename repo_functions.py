@@ -40,8 +40,7 @@ def spatialite(db):
     return cursor, connection
 
 # Function for exporting a shapefile from summary database
-def export_shapefile(database, table, geometry_column, output_directory,
-                    shapefile_name, encoding='utf-8'):
+def export_shapefile(database, table, geometry_column, output_directory, shapefile_name, encoding='utf-8'):
     """
     Exports a shapefile from the database
 
@@ -261,23 +260,10 @@ def make_summary_db(summary_db, gap_id, inDir, outDir, NChucs, NCBAblocks, NCcou
     """
     cursorQ.executescript(sql1)
 
-
-    '''  CAN THIS BE DELETED?????????????????????????????????????????????????????
-    sql2 = """
-    CREATE TABLE presence AS SELECT sp_range.strHUC12RNG, NChucs.geom_4326
-                             FROM sp_range LEFT JOIN NChucs ON sp_range.strHUC12RNG = NChucs.HUC12RNG
-                             WHERE sp_range.intGAPPresence = 1;
-
-    SELECT RecoverGeometryColumn('presence', 'geom_4326', 4326, 'POLYGON', 'XY');
-    """.format(outDir, gap_id)
-    cursorQ.executescript(sql2)
-    '''
-
     sql3 = """
     CREATE TABLE season AS SELECT sp_range.strHUC12RNG, sp_range.strGAPSeason, NChucs.geom_4326
-                             FROM sp_range LEFT JOIN NChucs ON sp_range.strHUC12RNG = NChucs.HUC12RNG
+                             FROM NChucs INNER JOIN sp_range ON sp_range.strHUC12RNG = NChucs.HUC12RNG
                              WHERE sp_range.intGAPPresence = 1;
-
     SELECT RecoverGeometryColumn('season', 'geom_4326', 4326, 'POLYGON', 'XY');
     """.format(outDir, gap_id)
 
@@ -340,7 +326,7 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
     Columns are added to feature tables that report summary information
     Columns added:
     record_count -- how many records were attributed to the feature
-    sufficient_count -- did the number of records meet the minimum_count for the species?
+    knowledge -- did the number of records meet the minimum_count for the species?
 
     The results of this code are new columns in the feature tables (in the db
     created for work in this repository).
@@ -419,14 +405,26 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                                       WHERE {4} = {3}.{4}
                                       GROUP BY {4});
 
-    /*  Did each feature have enough records? */
-    ALTER TABLE {3} ADD COLUMN sufficient_count INTEGER;
+    /*###################  What is the knowledge status for feature?
+     #############################################################*/
+    ALTER TABLE {3} ADD COLUMN knowledge INTEGER;
 
-    UPDATE {3} SET sufficient_count = 1
-                  WHERE record_count >= (SELECT minimum_count
-                                        FROM params.evaluations
-                                        WHERE evaluation_id = '{0}'
-                                        AND species_id = '{1}');
+    CREATE TABLE seasonPres AS
+                        SELECT St_union(geom_4326) AS geom_4326
+                        FROM season;
+    /*SELECT RecoverGeometryColumn('seasonPres', 'geom_4326', 4326, 'MULTIPOLYGON', 'XY');*/
+
+    UPDATE {3}
+    SET knowledge = 1
+    WHERE Intersects({3}.geom_4326, (SELECT geom_4326 FROM seasonPres))
+    AND NOT Touches({3}.geom_4326, (SELECT geom_4326 FROM seasonPres));
+
+    UPDATE {3}
+    SET knowledge = 2
+    WHERE record_count >= (SELECT minimum_count
+                           FROM params.evaluations
+                           WHERE evaluation_id = '{0}'
+                           AND species_id = '{1}');
 
     /*###################################   Years since last record
     #############################################################*/
@@ -444,26 +442,42 @@ def summarize_by_features(features, summary_id, gap_id, summary_db, outDir, code
                               WHERE purple.{4} = {3}.{4});
 
     /*######################## Find features to target for sampling
-    #############################################################*/
+    #############################################################
+    Targets are features touching a feature having sufficient count or
+    with fewer than the minimum count.  Code uses 'BETWEEN' which is inclusive,
+    so you have to get select for values between 0 and min_count - 1.
+
+    A couple intermediate tables with dissolved geometries have to be
+    created for applying spatial conditions (near documented or overlaping
+    initial gap range)*/
     CREATE TABLE documented AS
                         SELECT St_union(geom_4326) AS geom_4326
                         FROM {3}
-                        WHERE sufficient_count = 1;
+                        WHERE knowledge = 2;
     SELECT RecoverGeometryColumn('documented', 'geom_4326', 4326, 'MULTIPOLYGON', 'XY');
 
     ALTER TABLE {3} ADD COLUMN target INTEGER;
 
     UPDATE {3}
     SET target = 1
-    WHERE Touches(geom_4326, (SELECT geom_4326 FROM documented));
-    /* OR record_count BETWEEN 0 AND (SELECT minimum_count
-                                        FROM params.evaluations
-                                        WHERE evaluation_id = '{0}'
-                                        AND species_id = '{1}'))
-    OR Overlaps(geom_4326, season.geom_4326)
-    OR Equals(geom_4326, season.geom_4326);*/
+    WHERE Touches(geom_4326, (SELECT geom_4326 FROM documented))
+    OR record_count BETWEEN 0 AND ((SELECT minimum_count
+                                    FROM params.evaluations
+                                    WHERE evaluation_id = '{0}'
+                                    AND species_id = '{1}') - 1);
+
+    UPDATE {3}
+    SET target = 1
+    WHERE Intersects({3}.geom_4326, (SELECT geom_4326 FROM seasonPres))
+    AND NOT Touches({3}.geom_4326, (SELECT geom_4326 FROM seasonPres));
+
+    UPDATE {3}
+    SET target = Null
+    WHERE knowledge = 2;
+
     DROP VIEW purple;
     DROP TABLE documented;
+    DROP TABLE seasonPres;
     DROP TABLE green;
     DROP TABLE orange;
     """.format(summary_id, gap_id, outDir, features, IDfield, overlapField)
